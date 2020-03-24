@@ -5,6 +5,8 @@ module Main where
 import Control.Concurrent
 import Control.Exception (catch)
 import Control.Monad (forever)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import Data.Maybe (catMaybes)
 import Data.Text
 import Network.HTTP.Types
@@ -13,22 +15,37 @@ import Network.Wai.Handler.Warp (run)
 import Network.Wai.Handler.WebSockets
 import Network.WebSockets
 
-type State = [Connection]
+type Key = Text
 
-emptyState :: State
-emptyState = []
+type Rooms = Map Key (MVar Room)
 
-addConnection :: Connection -> State -> State
+emptyRooms :: Rooms
+emptyRooms = Map.empty
+
+getRoom :: Key -> Rooms -> IO (Rooms, MVar Room)
+getRoom key rooms = case Map.lookup key rooms of
+  Just room -> return (rooms, room)
+  Nothing -> do
+    putStrLn $ "creating new room: " ++ show key
+    room <- newMVar emptyRoom
+    return $ (Map.insert key room rooms, room)
+
+type Room = [Connection]
+
+emptyRoom :: Room
+emptyRoom = []
+
+addConnection :: Connection -> Room -> Room
 addConnection conn = (conn :)
 
-connections :: State -> [Connection]
+connections :: Room -> [Connection]
 connections = id
 
 -- | Broadcast a message to all listeneres, dropping those
 -- that aren't open anymore.
-broadcastMessage :: WebSocketsData a => a -> State -> IO State
-broadcastMessage msg state = do
-  let conns = connections state
+broadcastMessage :: WebSocketsData a => a -> Room -> IO Room
+broadcastMessage msg room = do
+  let conns = connections room
   catMaybes <$> mapM trySend conns
   where
     trySend :: Connection -> IO (Maybe Connection)
@@ -39,8 +56,8 @@ broadcastMessage msg state = do
                     return Nothing
                 )
 
-app :: MVar State -> Application
-app state req respond = do
+app :: MVar Rooms -> Application
+app rooms req respond = do
   case pathInfo req of
     [] ->
       respond $
@@ -48,15 +65,17 @@ app state req respond = do
           status200
           [("Content-Type", "text/plain")]
           "Hello, Web!"
-    ("game" : _) -> game state req respond
+    ["game", key] -> do
+      room <- modifyMVar rooms (getRoom key)
+      game room req respond
 
-game :: MVar State -> Application
-game state = websocketsOr defaultConnectionOptions app backup
+game :: MVar Room -> Application
+game room = websocketsOr defaultConnectionOptions app backup
   where
     app :: ServerApp
     app pending_conn = do
       conn <- acceptRequest pending_conn
-      modifyMVar_ state (pure . addConnection conn)
+      modifyMVar_ room (pure . addConnection conn)
       putStrLn $ "accepted connection"
       forever (handleMessage conn)
     handleMessage conn = do
@@ -64,7 +83,7 @@ game state = websocketsOr defaultConnectionOptions app backup
       case msg of
         Text b _ -> do
           putStrLn $ "received text message: " ++ show b
-          modifyMVar_ state $ broadcastMessage b
+          modifyMVar_ room $ broadcastMessage b
         Binary _ -> putStrLn "ignoring binary message"
     backup :: Application
     backup _ respond = respond $ responseLBS status400 [] "not a websocket request"
@@ -72,5 +91,5 @@ game state = websocketsOr defaultConnectionOptions app backup
 main :: IO ()
 main = do
   putStrLn $ "http://localhost:8080/"
-  state <- newMVar emptyState
-  run 8080 (app state)
+  rooms <- newMVar emptyRooms
+  run 8080 (app rooms)
