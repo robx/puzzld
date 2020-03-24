@@ -3,6 +3,9 @@
 module Main where
 
 import Control.Concurrent
+import Control.Exception (catch)
+import Control.Monad (forever)
+import Data.Maybe (catMaybes)
 import Data.Text
 import Network.HTTP.Types
 import Network.Wai
@@ -20,6 +23,21 @@ addConnection conn = (conn :)
 
 connections :: State -> [Connection]
 connections = id
+
+-- | Broadcast a message to all listeneres, dropping those
+-- that aren't open anymore.
+broadcastMessage :: WebSocketsData a => a -> State -> IO State
+broadcastMessage msg state = do
+  let conns = connections state
+  catMaybes <$> mapM trySend conns
+  where
+    trySend :: Connection -> IO (Maybe Connection)
+    trySend conn =
+      (sendTextData conn msg >> return (Just conn))
+        `catch` ( \ConnectionClosed -> do
+                    putStrLn $ "dropping closed connection"
+                    return Nothing
+                )
 
 app :: MVar State -> Application
 app state req respond = do
@@ -40,16 +58,14 @@ game state = websocketsOr defaultConnectionOptions app backup
       conn <- acceptRequest pending_conn
       modifyMVar_ state (pure . addConnection conn)
       putStrLn $ "accepted connection"
-      loop conn
-    loop conn = do
+      forever (handleMessage conn)
+    handleMessage conn = do
       msg <- receiveDataMessage conn
       case msg of
         Text b _ -> do
           putStrLn $ "received text message: " ++ show b
-          withMVar state $ mapM_ (\c -> sendTextData c b) . connections
+          modifyMVar_ state $ broadcastMessage b
         Binary _ -> putStrLn "ignoring binary message"
-      putStrLn $ "looping"
-      loop conn
     backup :: Application
     backup _ respond = respond $ responseLBS status400 [] "not a websocket request"
 
