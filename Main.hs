@@ -90,6 +90,6 @@ game room = websocketsOr defaultConnectionOptions app backup
 
 main :: IO ()
 main = do
-  putStrLn $ "http://localhost:8080/"
+  putStrLn $ "listening on port 8787"
   rooms <- newMVar emptyRooms
-  run 8080 (app rooms)
+  run 8787 (app rooms)
