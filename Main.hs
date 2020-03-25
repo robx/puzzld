@@ -92,8 +92,7 @@ toplevel req respond = do
           [("Content-Type", "text/plain")]
           "Hello, Web!"
     ["game", key] -> do
-      let addr = fromMaybe "<unknown>" $ sourceAddress req
-          ctx = [display key, displayBytesUtf8 addr]
+      let ctx = ["room " <> display key, sourceAddress req]
       room <- getRoom key
       withContext ctx $ game room req respond
     _ -> respond $ Wai.responseLBS status404 [] "not found"

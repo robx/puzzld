@@ -40,10 +40,12 @@ websocketsOr connectionOptions app backup =
       req
       (runInIO . respond)
 
-sourceAddress :: Wai.Request -> Maybe ByteString
-sourceAddress req = snd <$> maddr
+sourceAddress :: Wai.Request -> Utf8Builder
+sourceAddress req = fromMaybe socketAddr headerAddr
   where
-    maddr =
-      find
-        (\x -> fst x `elem` ["x-real-ip", "x-forwarded-for"])
-        (Wai.requestHeaders req)
+    headerAddr =
+      displayBytesUtf8 . snd
+        <$> find
+          (\x -> fst x `elem` ["x-real-ip", "x-forwarded-for"])
+          (Wai.requestHeaders req)
+    socketAddr = displayShow . Wai.remoteHost $ req
