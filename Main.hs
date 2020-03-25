@@ -62,8 +62,8 @@ run :: Warp.Port -> Application -> RIO SimpleApp ()
 run port app = do
   env <- ask
   liftIO $ Warp.run port (app' env)
- where
-  app' env req respond = runRIO env (app req respond)
+  where
+    app' env req respond = runRIO env (app req respond)
 
 app :: MVar Rooms -> Application
 app rooms req respond = do
@@ -101,5 +101,4 @@ main :: IO ()
 main = runSimpleApp $ do
   logInfo $ "listening on port 8787"
   rooms <- newMVar emptyRooms
-  env <- ask
-  liftIO $ run 8787 (app rooms)
+  run 8787 (app rooms)
