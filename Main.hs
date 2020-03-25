@@ -57,16 +57,13 @@ broadcastMessage msg room = do
                     return Nothing
                 )
 
-type Application = Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> RIO SimpleApp Wai.ResponseReceived
+type Application m = Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> m Wai.ResponseReceived
 
-run :: Warp.Port -> Application -> RIO SimpleApp ()
-run port app = do
-  env <- ask
-  liftIO $ Warp.run port (app' env)
-  where
-    app' env req respond = runRIO env (app req respond)
+run :: MonadUnliftIO m => Warp.Port -> Application m -> m ()
+run port app = withRunInIO $ \runInIO ->
+  Warp.run port (\req respond -> runInIO (app req respond))
 
-app :: MVar Rooms -> Application
+app :: MVar Rooms -> Application (RIO SimpleApp)
 app rooms req respond = do
   case Wai.pathInfo req of
     [] ->
@@ -79,9 +76,9 @@ app rooms req respond = do
       room <- modifyMVar rooms (getRoom key)
       game room req respond
 
-type ServerApp = WebSockets.PendingConnection -> RIO SimpleApp ()
+type ServerApp m = WebSockets.PendingConnection -> m ()
 
-websocketsOr :: WebSockets.ConnectionOptions -> ServerApp -> Application -> Application
+websocketsOr :: WebSockets.ConnectionOptions -> ServerApp (RIO env) -> Application (RIO env) -> Application (RIO env)
 websocketsOr connectionOptions app backup req respond = do
   env <- ask
   liftIO $ Wai.websocketsOr connectionOptions (app' env) (backup' env) req respond
@@ -89,10 +86,10 @@ websocketsOr connectionOptions app backup req respond = do
     app' env connection = runRIO env (app connection)
     backup' env req' respond' = runRIO env (backup req' respond')
 
-game :: MVar Room -> Application
+game :: MVar Room -> Application (RIO SimpleApp)
 game room = websocketsOr WebSockets.defaultConnectionOptions app backup
   where
-    app :: ServerApp
+    app :: ServerApp (RIO SimpleApp)
     app pending_conn = do
       conn <- liftIO $ WebSockets.acceptRequest pending_conn
       modifyMVar_ room (pure . addConnection conn)
