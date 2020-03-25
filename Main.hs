@@ -11,7 +11,7 @@ import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
-import Web (WebHandler, WebsocketHandler, run, websocketsOr)
+import Web (WebHandler, run, websocketsOr)
 
 type Key = Text
 
@@ -91,7 +91,6 @@ toplevel req respond = do
 game :: MVar Room -> WebHandler (RIO App)
 game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
   where
-    handleConn :: WebsocketHandler (RIO App)
     handleConn pendingConn = do
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
       modifyMVar_ room (pure . addConnection conn)
