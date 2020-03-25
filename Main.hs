@@ -10,7 +10,7 @@ import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
-import Web (WebHandler, run, sourceAddress, websocketsOr)
+import Web (WebHandler, receiveDataMessageOrClosed, run, sourceAddress, websocketsOr)
 
 type Key = Text
 
@@ -104,14 +104,19 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
       modifyMVar_ room (pure . addConnection conn)
       info $ "accepted connection"
-      forever (handleMessage conn)
-    handleMessage conn = do
-      msg <- liftIO $ WebSockets.receiveDataMessage conn
+      loop conn
+    loop conn = do
+      msg <- liftIO $ receiveDataMessageOrClosed conn
       case msg of
-        WebSockets.Text b _ -> do
+        Just (WebSockets.Text b _) -> do
           info $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
           modifyMVar_ room $ broadcastMessage b
-        WebSockets.Binary _ -> info "ignoring binary message"
+          loop conn
+        Just (WebSockets.Binary _) -> do
+          info "ignoring binary message"
+          loop conn
+        Nothing ->
+          info "connection closed"
     fallback _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()

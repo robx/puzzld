@@ -7,6 +7,7 @@ module Web
     WebsocketHandler,
     websocketsOr,
     sourceAddress,
+    receiveDataMessageOrClosed,
   )
 where
 
@@ -39,6 +40,19 @@ websocketsOr connectionOptions app backup =
       (\req1 respond1 -> runInIO $ backup req1 (liftIO . respond1))
       req
       (runInIO . respond)
+
+receiveDataMessageOrClosed :: WebSockets.Connection -> IO (Maybe WebSockets.DataMessage)
+receiveDataMessageOrClosed conn =
+  ( do
+      msg <- WebSockets.receiveDataMessage conn
+      return $ Just msg
+  )
+    `catch` ( \e -> case e of
+                WebSockets.CloseRequest _ _ -> return Nothing
+                -- below only happens if we keep reading after above
+                -- WebSockets.ConnectionClosed -> return Nothing
+                _ -> throwIO e
+            )
 
 sourceAddress :: Wai.Request -> Utf8Builder
 sourceAddress req = fromMaybe socketAddr headerAddr
