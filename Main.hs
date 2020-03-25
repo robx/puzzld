@@ -22,7 +22,9 @@ emptyRooms = Map.empty
 
 data App
   = App
-      {appLogFunc :: !LogFunc}
+      { appLogFunc :: !LogFunc,
+        appRooms :: !(MVar Rooms)
+      }
 
 instance HasLogFunc App where
   logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
@@ -30,16 +32,20 @@ instance HasLogFunc App where
 runApp :: RIO App () -> IO ()
 runApp inner = runSimpleApp $ do
   logFunc <- view logFuncL
-  let app = App {appLogFunc = logFunc}
+  rooms <- newMVar emptyRooms
+  let app = App {appLogFunc = logFunc, appRooms = rooms}
   runRIO app inner
 
-getRoom :: Key -> Rooms -> RIO App (Rooms, MVar Room)
-getRoom key rooms = case Map.lookup key rooms of
-  Just room -> return (rooms, room)
-  Nothing -> do
-    logInfo $ "creating new room: " <> display key
-    room <- newMVar emptyRoom
-    return $ (Map.insert key room rooms, room)
+getRoom :: Key -> RIO App (MVar Room)
+getRoom key = do
+  roomsM <- view $ to appRooms
+  modifyMVar roomsM $ \rooms ->
+    case Map.lookup key rooms of
+      Just room -> return (rooms, room)
+      Nothing -> do
+        logInfo $ "creating new room: " <> display key
+        room <- newMVar emptyRoom
+        return $ (Map.insert key room rooms, room)
 
 type Room = [WebSockets.Connection]
 
@@ -68,8 +74,8 @@ broadcastMessage msg room = do
                     _ -> throwIO e
                 )
 
-toplevel :: MVar Rooms -> WebHandler (RIO App)
-toplevel rooms req respond = do
+toplevel :: WebHandler (RIO App)
+toplevel req respond = do
   case Wai.pathInfo req of
     [] ->
       respond $
@@ -78,7 +84,7 @@ toplevel rooms req respond = do
           [("Content-Type", "text/plain")]
           "Hello, Web!"
     ["game", key] -> do
-      room <- modifyMVar rooms (getRoom key)
+      room <- getRoom key
       game room req respond
     _ -> respond $ Wai.responseLBS status404 [] "not found"
 
@@ -103,5 +109,4 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
 main :: IO ()
 main = runApp $ do
   logInfo $ "listening on port 8787"
-  rooms <- newMVar emptyRooms
-  run 8787 (toplevel rooms)
+  run 8787 toplevel
