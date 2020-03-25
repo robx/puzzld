@@ -14,7 +14,7 @@ import Network.Wai.Handler.Warp as Warp
 import Network.Wai.Handler.WebSockets
 import Network.WebSockets
 import RIO
-import Prelude (putStrLn)
+import qualified RIO.ByteString.Lazy as BL
 
 type Key = Text
 
@@ -23,11 +23,11 @@ type Rooms = Map Key (MVar Room)
 emptyRooms :: Rooms
 emptyRooms = Map.empty
 
-getRoom :: Key -> Rooms -> IO (Rooms, MVar Room)
+getRoom :: Key -> Rooms -> RIO SimpleApp (Rooms, MVar Room)
 getRoom key rooms = case Map.lookup key rooms of
   Just room -> return (rooms, room)
   Nothing -> do
-    putStrLn $ "creating new room: " ++ show key
+    logInfo $ "creating new room: " <> display key
     room <- newMVar emptyRoom
     return $ (Map.insert key room rooms, room)
 
@@ -44,53 +44,52 @@ connections = id
 
 -- | Broadcast a message to all listeneres, dropping those
 -- that aren't open anymore.
-broadcastMessage :: WebSocketsData a => a -> Room -> IO Room
+broadcastMessage :: WebSocketsData a => a -> Room -> RIO SimpleApp Room
 broadcastMessage msg room = do
   let conns = connections room
   catMaybes <$> mapM trySend conns
   where
-    trySend :: Connection -> IO (Maybe Connection)
     trySend conn =
-      (sendTextData conn msg >> return (Just conn))
+      (liftIO (sendTextData conn msg) >> return (Just conn))
         `catch` ( \ConnectionClosed -> do
-                    putStrLn $ "dropping closed connection"
+                    logInfo $ "dropping closed connection"
                     return Nothing
                 )
 
-app :: MVar Rooms -> Wai.Application
-app rooms req respond = do
+app :: SimpleApp -> MVar Rooms -> Wai.Application
+app env rooms req respond = runRIO env $ do
   case Wai.pathInfo req of
     [] ->
-      respond $
+      liftIO $ respond $
         Wai.responseLBS
           status200
           [("Content-Type", "text/plain")]
           "Hello, Web!"
     ["game", key] -> do
       room <- modifyMVar rooms (getRoom key)
-      game room req respond
+      liftIO $ game env room req respond
 
-game :: MVar Room -> Wai.Application
-game room = websocketsOr defaultConnectionOptions app backup
+game :: SimpleApp -> MVar Room -> Wai.Application
+game env room = websocketsOr defaultConnectionOptions app backup
   where
     app :: ServerApp
     app pending_conn = do
       conn <- acceptRequest pending_conn
       modifyMVar_ room (pure . addConnection conn)
-      putStrLn $ "accepted connection"
+      runRIO env $ logInfo $ "accepted connection"
       forever (handleMessage conn)
-    handleMessage conn = do
-      msg <- receiveDataMessage conn
+    handleMessage conn = runRIO env $ do
+      msg <- liftIO $ receiveDataMessage conn
       case msg of
         Text b _ -> do
-          putStrLn $ "received text message: " ++ show b
+          logInfo $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
           modifyMVar_ room $ broadcastMessage b
-        Binary _ -> putStrLn "ignoring binary message"
-    backup :: Wai.Application
+        Binary _ -> logInfo "ignoring binary message"
     backup _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
 main = runSimpleApp $ do
   logInfo $ "listening on port 8787"
   rooms <- newMVar emptyRooms
-  liftIO $ run 8787 (app rooms)
+  env <- ask
+  liftIO $ run 8787 (app env rooms)
