@@ -3,19 +3,14 @@
 
 module Main where
 
-import Control.Monad (forever)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
-import Data.Maybe (catMaybes)
 import Data.Text
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
-import qualified Network.Wai.Handler.Warp as Warp
-import qualified Network.Wai.Handler.WebSockets as Wai
 import qualified Network.WebSockets as WebSockets
 import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
+import qualified RIO.Map as Map
 import Web (WebHandler, WebsocketHandler, run, websocketsOr)
 
 type Key = Text
@@ -70,6 +65,7 @@ toplevel rooms req respond = do
     ["game", key] -> do
       room <- modifyMVar rooms (getRoom key)
       game room req respond
+    _ -> respond $ Wai.responseLBS status404 [] "not found"
 
 game :: MVar Room -> WebHandler (RIO SimpleApp)
 game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback

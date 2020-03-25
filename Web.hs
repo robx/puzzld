@@ -8,19 +8,11 @@ module Web
   )
 where
 
-import Control.Monad (forever)
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
-import Data.Maybe (catMaybes)
-import Data.Text
-import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Handler.WebSockets as Wai
 import qualified Network.WebSockets as WebSockets
-import Network.WebSockets (WebSocketsData)
 import RIO
-import qualified RIO.ByteString.Lazy as BL
 
 type WebHandler m = Wai.Request -> (Wai.Response -> m Wai.ResponseReceived) -> m Wai.ResponseReceived
 
