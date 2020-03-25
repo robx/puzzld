@@ -10,7 +10,7 @@ import Data.Maybe (catMaybes)
 import Data.Text
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
-import Network.Wai.Handler.Warp as Warp
+import qualified Network.Wai.Handler.Warp as Warp
 import Network.Wai.Handler.WebSockets
 import Network.WebSockets
 import RIO
@@ -56,8 +56,17 @@ broadcastMessage msg room = do
                     return Nothing
                 )
 
-app :: SimpleApp -> MVar Rooms -> Wai.Application
-app env rooms req respond = runRIO env $ do
+type Application = Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> RIO SimpleApp Wai.ResponseReceived
+
+run :: Warp.Port -> Application -> RIO SimpleApp ()
+run port app = do
+  env <- ask
+  liftIO $ Warp.run port (app' env)
+ where
+  app' env req respond = runRIO env (app req respond)
+
+app :: MVar Rooms -> Application
+app rooms req respond = do
   case Wai.pathInfo req of
     [] ->
       liftIO $ respond $
@@ -67,6 +76,7 @@ app env rooms req respond = runRIO env $ do
           "Hello, Web!"
     ["game", key] -> do
       room <- modifyMVar rooms (getRoom key)
+      env <- ask
       liftIO $ game env room req respond
 
 game :: SimpleApp -> MVar Room -> Wai.Application
@@ -92,4 +102,4 @@ main = runSimpleApp $ do
   logInfo $ "listening on port 8787"
   rooms <- newMVar emptyRooms
   env <- ask
-  liftIO $ run 8787 (app env rooms)
+  liftIO $ run 8787 (app rooms)
