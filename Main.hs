@@ -10,7 +10,7 @@ import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
-import Web (WebHandler, run, websocketsOr)
+import Web (WebHandler, run, sourceAddress, websocketsOr)
 
 type Key = Text
 
@@ -33,6 +33,9 @@ info :: Utf8Builder -> RIO App ()
 info msg = do
   logContext <- view $ to appLogContext
   logInfo $ mconcat (map (\c -> c <> ": ") logContext) <> msg
+
+withContext :: [Utf8Builder] -> RIO App a -> RIO App a
+withContext ctx = local (\app -> app {appLogContext = ctx})
 
 runApp :: RIO App () -> IO ()
 runApp inner = runSimpleApp $ do
@@ -89,8 +92,10 @@ toplevel req respond = do
           [("Content-Type", "text/plain")]
           "Hello, Web!"
     ["game", key] -> do
+      let addr = fromMaybe "<unknown>" $ sourceAddress req
+          ctx = [display key, displayBytesUtf8 addr]
       room <- getRoom key
-      game room req respond
+      withContext ctx $ game room req respond
     _ -> respond $ Wai.responseLBS status404 [] "not found"
 
 game :: MVar Room -> WebHandler (RIO App)
