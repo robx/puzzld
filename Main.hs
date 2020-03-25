@@ -91,6 +91,6 @@ game room = websocketsOr defaultConnectionOptions app backup
 
 main :: IO ()
 main = runSimpleApp $ do
-  liftIO $ putStrLn $ "listening on port 8787"
+  logInfo $ "listening on port 8787"
   rooms <- newMVar emptyRooms
   liftIO $ run 8787 (app rooms)
