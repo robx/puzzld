@@ -16,6 +16,7 @@ import qualified Network.WebSockets as WebSockets
 import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
+import Web (WebHandler, WebsocketHandler, run, websocketsOr)
 
 type Key = Text
 
@@ -57,12 +58,6 @@ broadcastMessage msg room = do
                     return Nothing
                 )
 
-type WebHandler m = Wai.Request -> (Wai.Response -> m Wai.ResponseReceived) -> m Wai.ResponseReceived
-
-run :: MonadUnliftIO m => Warp.Port -> WebHandler m -> m ()
-run port app = withRunInIO $ \runInIO ->
-  Warp.run port (\req respond -> runInIO (app req (liftIO . respond)))
-
 toplevel :: MVar Rooms -> WebHandler (RIO SimpleApp)
 toplevel rooms req respond = do
   case Wai.pathInfo req of
@@ -75,23 +70,6 @@ toplevel rooms req respond = do
     ["game", key] -> do
       room <- modifyMVar rooms (getRoom key)
       game room req respond
-
-type WebsocketHandler m = WebSockets.PendingConnection -> m ()
-
-websocketsOr ::
-  MonadUnliftIO m =>
-  WebSockets.ConnectionOptions ->
-  WebsocketHandler m ->
-  WebHandler m ->
-  WebHandler m
-websocketsOr connectionOptions app backup =
-  \req respond -> withRunInIO $ \runInIO ->
-    Wai.websocketsOr
-      connectionOptions
-      (\conn -> runInIO $ app conn)
-      (\req1 respond1 -> runInIO $ backup req1 (liftIO . respond1))
-      req
-      (runInIO . respond)
 
 game :: MVar Room -> WebHandler (RIO SimpleApp)
 game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
