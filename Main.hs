@@ -3,7 +3,6 @@
 
 module Main where
 
-import Data.Text
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.WebSockets as WebSockets
