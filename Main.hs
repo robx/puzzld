@@ -48,9 +48,11 @@ broadcastMessage msg room = do
   where
     trySend conn =
       (liftIO (WebSockets.sendTextData conn msg) >> return (Just conn))
-        `catch` ( \WebSockets.ConnectionClosed -> do
-                    logInfo $ "dropping closed connection"
-                    return Nothing
+        `catch` ( \e -> case e of
+                    WebSockets.ConnectionClosed -> do
+                      logInfo $ "dropping closed connection"
+                      return Nothing
+                    _ -> throwIO e
                 )
 
 toplevel :: MVar Rooms -> WebHandler (RIO SimpleApp)
