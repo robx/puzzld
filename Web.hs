@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Web
@@ -5,9 +6,11 @@ module Web
     run,
     WebsocketHandler,
     websocketsOr,
+    sourceAddress,
   )
 where
 
+import Data.List (find)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Handler.WebSockets as Wai
@@ -36,3 +39,11 @@ websocketsOr connectionOptions app backup =
       (\req1 respond1 -> runInIO $ backup req1 (liftIO . respond1))
       req
       (runInIO . respond)
+
+sourceAddress :: Wai.Request -> Maybe ByteString
+sourceAddress req = snd <$> maddr
+  where
+    maddr =
+      find
+        (\x -> fst x `elem` ["x-real-ip", "x-forwarded-for"])
+        (Wai.requestHeaders req)
