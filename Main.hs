@@ -78,13 +78,20 @@ app rooms req respond = do
 
 type ServerApp m = WebSockets.PendingConnection -> m ()
 
-websocketsOr :: WebSockets.ConnectionOptions -> ServerApp (RIO env) -> Application (RIO env) -> Application (RIO env)
-websocketsOr connectionOptions app backup req respond = do
-  env <- ask
-  liftIO $ Wai.websocketsOr connectionOptions (app' env) (backup' env) req respond
-  where
-    app' env connection = runRIO env (app connection)
-    backup' env req' respond' = runRIO env (backup req' respond')
+websocketsOr ::
+  MonadUnliftIO m =>
+  WebSockets.ConnectionOptions ->
+  ServerApp m ->
+  Application m ->
+  Application m
+websocketsOr connectionOptions app backup =
+  \req respond -> withRunInIO $ \runInIO ->
+    Wai.websocketsOr
+      connectionOptions
+      (\conn -> runInIO $ app conn)
+      (\req1 respond1 -> runInIO $ backup req1 respond1)
+      req
+      respond
 
 game :: MVar Room -> Application (RIO SimpleApp)
 game room = websocketsOr WebSockets.defaultConnectionOptions app backup
