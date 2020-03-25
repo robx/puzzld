@@ -57,14 +57,14 @@ broadcastMessage msg room = do
                     return Nothing
                 )
 
-type Application m = Wai.Request -> (Wai.Response -> m Wai.ResponseReceived) -> m Wai.ResponseReceived
+type WebHandler m = Wai.Request -> (Wai.Response -> m Wai.ResponseReceived) -> m Wai.ResponseReceived
 
-run :: MonadUnliftIO m => Warp.Port -> Application m -> m ()
+run :: MonadUnliftIO m => Warp.Port -> WebHandler m -> m ()
 run port app = withRunInIO $ \runInIO ->
   Warp.run port (\req respond -> runInIO (app req (liftIO . respond)))
 
-app :: MVar Rooms -> Application (RIO SimpleApp)
-app rooms req respond = do
+toplevel :: MVar Rooms -> WebHandler (RIO SimpleApp)
+toplevel rooms req respond = do
   case Wai.pathInfo req of
     [] ->
       respond $
@@ -76,14 +76,14 @@ app rooms req respond = do
       room <- modifyMVar rooms (getRoom key)
       game room req respond
 
-type ServerApp m = WebSockets.PendingConnection -> m ()
+type WebsocketHandler m = WebSockets.PendingConnection -> m ()
 
 websocketsOr ::
   MonadUnliftIO m =>
   WebSockets.ConnectionOptions ->
-  ServerApp m ->
-  Application m ->
-  Application m
+  WebsocketHandler m ->
+  WebHandler m ->
+  WebHandler m
 websocketsOr connectionOptions app backup =
   \req respond -> withRunInIO $ \runInIO ->
     Wai.websocketsOr
@@ -93,12 +93,12 @@ websocketsOr connectionOptions app backup =
       req
       (runInIO . respond)
 
-game :: MVar Room -> Application (RIO SimpleApp)
-game room = websocketsOr WebSockets.defaultConnectionOptions app backup
+game :: MVar Room -> WebHandler (RIO SimpleApp)
+game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
   where
-    app :: ServerApp (RIO SimpleApp)
-    app pending_conn = do
-      conn <- liftIO $ WebSockets.acceptRequest pending_conn
+    handleConn :: WebsocketHandler (RIO SimpleApp)
+    handleConn pendingConn = do
+      conn <- liftIO $ WebSockets.acceptRequest pendingConn
       modifyMVar_ room (pure . addConnection conn)
       logInfo $ "accepted connection"
       forever (handleMessage conn)
@@ -109,10 +109,10 @@ game room = websocketsOr WebSockets.defaultConnectionOptions app backup
           logInfo $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
           modifyMVar_ room $ broadcastMessage b
         WebSockets.Binary _ -> logInfo "ignoring binary message"
-    backup _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
+    fallback _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
 main = runSimpleApp $ do
   logInfo $ "listening on port 8787"
   rooms <- newMVar emptyRooms
-  run 8787 (app rooms)
+  run 8787 (toplevel rooms)
