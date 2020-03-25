@@ -1,9 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 module Main where
 
-import Control.Concurrent
-import Control.Exception (catch)
 import Control.Monad (forever)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -14,6 +13,8 @@ import Network.Wai
 import Network.Wai.Handler.Warp (run)
 import Network.Wai.Handler.WebSockets
 import Network.WebSockets
+import RIO
+import Prelude (putStrLn)
 
 type Key = Text
 
@@ -89,7 +90,7 @@ game room = websocketsOr defaultConnectionOptions app backup
     backup _ respond = respond $ responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
-main = do
-  putStrLn $ "listening on port 8787"
+main = runSimpleApp $ do
+  liftIO $ putStrLn $ "listening on port 8787"
   rooms <- newMVar emptyRooms
-  run 8787 (app rooms)
+  liftIO $ run 8787 (app rooms)

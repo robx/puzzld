@@ -20,6 +20,7 @@ executable puzzld
   build-depends:       base >=4.12 && <4.14,
                        containers,
                        http-types,
+                       rio,
                        wai,
                        wai-websockets,
                        warp,
