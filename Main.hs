@@ -9,8 +9,8 @@ import Data.Map.Strict (Map)
 import Data.Maybe (catMaybes)
 import Data.Text
 import Network.HTTP.Types
-import Network.Wai
-import Network.Wai.Handler.Warp (run)
+import qualified Network.Wai as Wai
+import Network.Wai.Handler.Warp as Warp
 import Network.Wai.Handler.WebSockets
 import Network.WebSockets
 import RIO
@@ -57,12 +57,12 @@ broadcastMessage msg room = do
                     return Nothing
                 )
 
-app :: MVar Rooms -> Application
+app :: MVar Rooms -> Wai.Application
 app rooms req respond = do
-  case pathInfo req of
+  case Wai.pathInfo req of
     [] ->
       respond $
-        responseLBS
+        Wai.responseLBS
           status200
           [("Content-Type", "text/plain")]
           "Hello, Web!"
@@ -70,7 +70,7 @@ app rooms req respond = do
       room <- modifyMVar rooms (getRoom key)
       game room req respond
 
-game :: MVar Room -> Application
+game :: MVar Room -> Wai.Application
 game room = websocketsOr defaultConnectionOptions app backup
   where
     app :: ServerApp
@@ -86,8 +86,8 @@ game room = websocketsOr defaultConnectionOptions app backup
           putStrLn $ "received text message: " ++ show b
           modifyMVar_ room $ broadcastMessage b
         Binary _ -> putStrLn "ignoring binary message"
-    backup :: Application
-    backup _ respond = respond $ responseLBS status400 [] "not a websocket request"
+    backup :: Wai.Application
+    backup _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
 main = runSimpleApp $ do
