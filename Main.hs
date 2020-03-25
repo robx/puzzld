@@ -11,8 +11,9 @@ import Data.Text
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
-import Network.Wai.Handler.WebSockets
-import Network.WebSockets
+import qualified Network.Wai.Handler.WebSockets as Wai
+import qualified Network.WebSockets as WebSockets
+import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 
@@ -31,15 +32,15 @@ getRoom key rooms = case Map.lookup key rooms of
     room <- newMVar emptyRoom
     return $ (Map.insert key room rooms, room)
 
-type Room = [Connection]
+type Room = [WebSockets.Connection]
 
 emptyRoom :: Room
 emptyRoom = []
 
-addConnection :: Connection -> Room -> Room
+addConnection :: WebSockets.Connection -> Room -> Room
 addConnection conn = (conn :)
 
-connections :: Room -> [Connection]
+connections :: Room -> [WebSockets.Connection]
 connections = id
 
 -- | Broadcast a message to all listeneres, dropping those
@@ -50,8 +51,8 @@ broadcastMessage msg room = do
   catMaybes <$> mapM trySend conns
   where
     trySend conn =
-      (liftIO (sendTextData conn msg) >> return (Just conn))
-        `catch` ( \ConnectionClosed -> do
+      (liftIO (WebSockets.sendTextData conn msg) >> return (Just conn))
+        `catch` ( \WebSockets.ConnectionClosed -> do
                     logInfo $ "dropping closed connection"
                     return Nothing
                 )
@@ -80,21 +81,21 @@ app rooms req respond = do
       liftIO $ game env room req respond
 
 game :: SimpleApp -> MVar Room -> Wai.Application
-game env room = websocketsOr defaultConnectionOptions app backup
+game env room = Wai.websocketsOr WebSockets.defaultConnectionOptions app backup
   where
-    app :: ServerApp
+    app :: WebSockets.ServerApp
     app pending_conn = do
-      conn <- acceptRequest pending_conn
+      conn <- WebSockets.acceptRequest pending_conn
       modifyMVar_ room (pure . addConnection conn)
       runRIO env $ logInfo $ "accepted connection"
       forever (handleMessage conn)
     handleMessage conn = runRIO env $ do
-      msg <- liftIO $ receiveDataMessage conn
+      msg <- liftIO $ WebSockets.receiveDataMessage conn
       case msg of
-        Text b _ -> do
+        WebSockets.Text b _ -> do
           logInfo $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
           modifyMVar_ room $ broadcastMessage b
-        Binary _ -> logInfo "ignoring binary message"
+        WebSockets.Binary _ -> logInfo "ignoring binary message"
     backup _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
