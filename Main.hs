@@ -77,26 +77,35 @@ app rooms req respond = do
           "Hello, Web!"
     ["game", key] -> do
       room <- modifyMVar rooms (getRoom key)
-      env <- ask
-      liftIO $ game env room req respond
+      game room req respond
 
-game :: SimpleApp -> MVar Room -> Wai.Application
-game env room = Wai.websocketsOr WebSockets.defaultConnectionOptions app backup
+type ServerApp = WebSockets.PendingConnection -> RIO SimpleApp ()
+
+websocketsOr :: WebSockets.ConnectionOptions -> ServerApp -> Application -> Application
+websocketsOr connectionOptions app backup req respond = do
+  env <- ask
+  liftIO $ Wai.websocketsOr connectionOptions (app' env) (backup' env) req respond
   where
-    app :: WebSockets.ServerApp
+    app' env connection = runRIO env (app connection)
+    backup' env req' respond' = runRIO env (backup req' respond')
+
+game :: MVar Room -> Application
+game room = websocketsOr WebSockets.defaultConnectionOptions app backup
+  where
+    app :: ServerApp
     app pending_conn = do
-      conn <- WebSockets.acceptRequest pending_conn
+      conn <- liftIO $ WebSockets.acceptRequest pending_conn
       modifyMVar_ room (pure . addConnection conn)
-      runRIO env $ logInfo $ "accepted connection"
+      logInfo $ "accepted connection"
       forever (handleMessage conn)
-    handleMessage conn = runRIO env $ do
+    handleMessage conn = do
       msg <- liftIO $ WebSockets.receiveDataMessage conn
       case msg of
         WebSockets.Text b _ -> do
           logInfo $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
           modifyMVar_ room $ broadcastMessage b
         WebSockets.Binary _ -> logInfo "ignoring binary message"
-    backup _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
+    backup _ respond = liftIO $ respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
 main = runSimpleApp $ do
