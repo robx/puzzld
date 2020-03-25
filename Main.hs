@@ -43,7 +43,7 @@ addConnection conn = (conn :)
 connections :: Room -> [WebSockets.Connection]
 connections = id
 
--- | Broadcast a message to all listeneres, dropping those
+-- | Broadcast a message to all listeners, dropping those
 -- that aren't open anymore.
 broadcastMessage :: WebSocketsData a => a -> Room -> RIO SimpleApp Room
 broadcastMessage msg room = do
