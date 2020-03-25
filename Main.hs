@@ -57,17 +57,17 @@ broadcastMessage msg room = do
                     return Nothing
                 )
 
-type Application m = Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> m Wai.ResponseReceived
+type Application m = Wai.Request -> (Wai.Response -> m Wai.ResponseReceived) -> m Wai.ResponseReceived
 
 run :: MonadUnliftIO m => Warp.Port -> Application m -> m ()
 run port app = withRunInIO $ \runInIO ->
-  Warp.run port (\req respond -> runInIO (app req respond))
+  Warp.run port (\req respond -> runInIO (app req (liftIO . respond)))
 
 app :: MVar Rooms -> Application (RIO SimpleApp)
 app rooms req respond = do
   case Wai.pathInfo req of
     [] ->
-      liftIO $ respond $
+      respond $
         Wai.responseLBS
           status200
           [("Content-Type", "text/plain")]
@@ -89,9 +89,9 @@ websocketsOr connectionOptions app backup =
     Wai.websocketsOr
       connectionOptions
       (\conn -> runInIO $ app conn)
-      (\req1 respond1 -> runInIO $ backup req1 respond1)
+      (\req1 respond1 -> runInIO $ backup req1 (liftIO . respond1))
       req
-      respond
+      (runInIO . respond)
 
 game :: MVar Room -> Application (RIO SimpleApp)
 game room = websocketsOr WebSockets.defaultConnectionOptions app backup
@@ -109,7 +109,7 @@ game room = websocketsOr WebSockets.defaultConnectionOptions app backup
           logInfo $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
           modifyMVar_ room $ broadcastMessage b
         WebSockets.Binary _ -> logInfo "ignoring binary message"
-    backup _ respond = liftIO $ respond $ Wai.responseLBS status400 [] "not a websocket request"
+    backup _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
 main = runSimpleApp $ do
