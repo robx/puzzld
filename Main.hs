@@ -20,7 +20,20 @@ type Rooms = Map Key (MVar Room)
 emptyRooms :: Rooms
 emptyRooms = Map.empty
 
-getRoom :: Key -> Rooms -> RIO SimpleApp (Rooms, MVar Room)
+data App
+  = App
+      {appLogFunc :: !LogFunc}
+
+instance HasLogFunc App where
+  logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
+
+runApp :: RIO App () -> IO ()
+runApp inner = runSimpleApp $ do
+  logFunc <- view logFuncL
+  let app = App {appLogFunc = logFunc}
+  runRIO app inner
+
+getRoom :: Key -> Rooms -> RIO App (Rooms, MVar Room)
 getRoom key rooms = case Map.lookup key rooms of
   Just room -> return (rooms, room)
   Nothing -> do
@@ -41,7 +54,7 @@ connections = id
 
 -- | Broadcast a message to all listeners, dropping those
 -- that aren't open anymore.
-broadcastMessage :: WebSocketsData a => a -> Room -> RIO SimpleApp Room
+broadcastMessage :: WebSocketsData a => a -> Room -> RIO App Room
 broadcastMessage msg room = do
   let conns = connections room
   catMaybes <$> mapM trySend conns
@@ -55,7 +68,7 @@ broadcastMessage msg room = do
                     _ -> throwIO e
                 )
 
-toplevel :: MVar Rooms -> WebHandler (RIO SimpleApp)
+toplevel :: MVar Rooms -> WebHandler (RIO App)
 toplevel rooms req respond = do
   case Wai.pathInfo req of
     [] ->
@@ -69,10 +82,10 @@ toplevel rooms req respond = do
       game room req respond
     _ -> respond $ Wai.responseLBS status404 [] "not found"
 
-game :: MVar Room -> WebHandler (RIO SimpleApp)
+game :: MVar Room -> WebHandler (RIO App)
 game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
   where
-    handleConn :: WebsocketHandler (RIO SimpleApp)
+    handleConn :: WebsocketHandler (RIO App)
     handleConn pendingConn = do
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
       modifyMVar_ room (pure . addConnection conn)
@@ -88,7 +101,7 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
     fallback _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
-main = runSimpleApp $ do
+main = runApp $ do
   logInfo $ "listening on port 8787"
   rooms <- newMVar emptyRooms
   run 8787 (toplevel rooms)
