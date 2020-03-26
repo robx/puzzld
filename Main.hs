@@ -55,26 +55,41 @@ getRoom key = do
         room <- newMVar emptyRoom
         return $ (Map.insert key room rooms, room)
 
-type Room = [WebSockets.Connection]
+type ConnectionId = Int
+
+data Room
+  = Room
+      { roomConnections :: [(ConnectionId, WebSockets.Connection)],
+        roomNextId :: !Int
+      }
 
 emptyRoom :: Room
-emptyRoom = []
+emptyRoom = Room
+  { roomConnections = [],
+    roomNextId = 0
+  }
 
-addConnection :: WebSockets.Connection -> Room -> Room
-addConnection conn = (conn :)
+connections :: Room -> [(ConnectionId, WebSockets.Connection)]
+connections = roomConnections
 
-connections :: Room -> [WebSockets.Connection]
-connections = id
+addConnection :: WebSockets.Connection -> Room -> (Room, ConnectionId)
+addConnection conn (Room conns next) =
+  (Room ((next, conn) : conns) (next + 1), next)
+
+removeConnection :: ConnectionId -> Room -> Room
+removeConnection connId (Room conns next) =
+  Room (filter (\(i, _) -> i /= connId) conns) next
 
 -- | Broadcast a message to all listeners, dropping those
 -- that aren't open anymore.
 broadcastMessage :: WebSocketsData a => a -> Room -> RIO App Room
 broadcastMessage msg room = do
-  let conns = connections room
-  catMaybes <$> mapM trySend conns
+  let conns = roomConnections room
+  liveConns <- catMaybes <$> mapM trySend conns
+  return $ room {roomConnections = liveConns}
   where
-    trySend conn =
-      (liftIO (WebSockets.sendTextData conn msg) >> return (Just conn))
+    trySend c@(_, conn) =
+      (liftIO (WebSockets.sendTextData conn msg) >> return (Just c))
         `catch` ( \e -> case e of
                     WebSockets.ConnectionClosed -> do
                       info $ "dropping closed connection"
@@ -102,9 +117,16 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
   where
     handleConn pendingConn = do
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
-      modifyMVar_ room (pure . addConnection conn)
-      info $ "accepted connection"
-      loop conn
+      bracket
+        (modifyMVar room (pure . addConnection conn))
+        ( \connId -> do
+            modifyMVar_ room (pure . removeConnection connId)
+            info $ "dropped connection " <> displayShow connId
+        )
+        ( \connId -> do
+            info $ "accepted connection " <> displayShow connId
+            loop conn
+        )
     loop conn = do
       msg <- liftIO $ receiveDataMessageOrClosed conn
       case msg of
