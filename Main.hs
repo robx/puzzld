@@ -3,6 +3,8 @@
 
 module Main where
 
+import qualified Data.Sequence as Seq
+import Data.Sequence (Seq (..))
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.WebSockets as WebSockets
@@ -68,7 +70,7 @@ data Room
   = Room
       { roomConnections :: [(ConnectionId, WebSockets.Connection)],
         roomNextConnectionId :: !ConnectionId,
-        roomEvents :: [(EventId, Event)],
+        roomEvents :: Seq (EventId, Event),
         roomNextEventId :: !EventId
       }
 
@@ -76,7 +78,7 @@ emptyRoom :: Room
 emptyRoom = Room
   { roomConnections = [],
     roomNextConnectionId = 0,
-    roomEvents = [],
+    roomEvents = Seq.Empty,
     roomNextEventId = 0
   }
 
@@ -100,13 +102,13 @@ removeConnection connId room =
    in room {roomConnections = filter (\(i, _) -> i /= connId) conns}
 
 events :: Room -> [(EventId, Event)]
-events = roomEvents
+events = toList . roomEvents
 
 addEvent :: Event -> Room -> Room
 addEvent event room =
   let next = roomNextEventId room
    in room
-        { roomEvents = (next, event) : (roomEvents room),
+        { roomEvents = roomEvents room :|> (next, event),
           roomNextEventId = next + 1
         }
 
