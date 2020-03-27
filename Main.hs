@@ -10,7 +10,7 @@ import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
-import Web (WebHandler, receiveDataMessageOrClosed, run, sourceAddress, websocketsOr)
+import Web (WebHandler, receiveDataMessageOrClosed, run, sourceAddress, websocketsOr, withPingThread)
 
 type Key = Text
 
@@ -165,7 +165,7 @@ game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallbac
         )
         ( \connId -> do
             info $ "accepted connection " <> displayShow connId
-            loop conn
+            withPingThread conn 30 $ loop conn
         )
     loop conn = do
       msg <- liftIO $ receiveDataMessageOrClosed conn

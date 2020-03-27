@@ -6,6 +6,7 @@ module Web
     run,
     WebsocketHandler,
     websocketsOr,
+    withPingThread,
     sourceAddress,
     receiveDataMessageOrClosed,
   )
@@ -40,6 +41,10 @@ websocketsOr connectionOptions app backup =
       (\req1 respond1 -> runInIO $ backup req1 (liftIO . respond1))
       req
       (runInIO . respond)
+
+withPingThread :: MonadUnliftIO m => WebSockets.Connection -> Int -> m a -> m a
+withPingThread conn interval action = withRunInIO $ \runInIO ->
+  WebSockets.withPingThread conn interval (return ()) (runInIO action)
 
 receiveDataMessageOrClosed :: WebSockets.Connection -> IO (Maybe WebSockets.DataMessage)
 receiveDataMessageOrClosed conn =
