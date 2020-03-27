@@ -57,28 +57,58 @@ getRoom key = do
 
 type ConnectionId = Int
 
+type EventId = Int
+
+data Event
+  = Event
+      { eventOperation :: BL.ByteString
+      }
+
 data Room
   = Room
       { roomConnections :: [(ConnectionId, WebSockets.Connection)],
-        roomNextId :: !Int
+        roomNextConnectionId :: !ConnectionId,
+        roomEvents :: [(EventId, Event)],
+        roomNextEventId :: !EventId
       }
 
 emptyRoom :: Room
 emptyRoom = Room
   { roomConnections = [],
-    roomNextId = 0
+    roomNextConnectionId = 0,
+    roomEvents = [],
+    roomNextEventId = 0
   }
 
 connections :: Room -> [(ConnectionId, WebSockets.Connection)]
 connections = roomConnections
 
 addConnection :: WebSockets.Connection -> Room -> (Room, ConnectionId)
-addConnection conn (Room conns next) =
-  (Room ((next, conn) : conns) (next + 1), next)
+addConnection conn room =
+  let conns = roomConnections room
+      next = roomNextConnectionId room
+   in ( room
+          { roomConnections = (next, conn) : conns,
+            roomNextConnectionId = next + 1
+          },
+        next
+      )
 
 removeConnection :: ConnectionId -> Room -> Room
-removeConnection connId (Room conns next) =
-  Room (filter (\(i, _) -> i /= connId) conns) next
+removeConnection connId room =
+  let conns = roomConnections room
+   in room {roomConnections = filter (\(i, _) -> i /= connId) conns}
+
+events :: Room -> [(EventId, Event)]
+events = roomEvents
+
+addEvent :: Event -> Room -> Room
+addEvent event room =
+  let next = roomNextEventId room
+   in room
+        { roomEvents = (next, event) : (roomEvents room),
+          roomNextEventId = next + 1
+        }
 
 -- | Broadcast a message to all listeners, dropping those
 -- that aren't open anymore.
@@ -113,14 +143,14 @@ toplevel req respond = do
     _ -> respond $ Wai.responseLBS status404 [] "not found"
 
 game :: MVar Room -> WebHandler (RIO App)
-game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
+game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
   where
     handleConn pendingConn = do
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
       bracket
-        (modifyMVar room (pure . addConnection conn))
+        (modifyMVar roomM (pure . addConnection conn))
         ( \connId -> do
-            modifyMVar_ room (pure . removeConnection connId)
+            modifyMVar_ roomM (pure . removeConnection connId)
             info $ "dropped connection " <> displayShow connId
         )
         ( \connId -> do
@@ -132,7 +162,9 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
       case msg of
         Just (WebSockets.Text b _) -> do
           info $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
-          modifyMVar_ room $ broadcastMessage b
+          modifyMVar_ roomM $ \room -> do
+            let room' = addEvent (Event {eventOperation = b}) room
+            broadcastMessage b room'
           loop conn
         Just (WebSockets.Binary _) -> do
           info "ignoring binary message"
