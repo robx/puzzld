@@ -18,6 +18,7 @@ executable puzzld
   other-modules:       Web
   -- other-extensions:
   build-depends:       base >=4.12 && <4.14,
+                       aeson,
                        containers,
                        http-types,
                        rio,

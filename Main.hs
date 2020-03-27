@@ -3,6 +3,8 @@
 
 module Main where
 
+import qualified Data.Aeson as Aeson
+import Data.Aeson ((.=))
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq (..))
 import Network.HTTP.Types
@@ -63,8 +65,14 @@ type EventId = Int
 
 data Event
   = Event
-      { eventOperation :: BL.ByteString
+      { eventOperation :: Text
       }
+
+encodeEvent :: (EventId, Event) -> BL.ByteString
+encodeEvent (eventId, event) =
+  Aeson.encode $
+    Aeson.object
+      ["id" .= Aeson.toJSON eventId, "operation" .= Aeson.toJSON (eventOperation event)]
 
 data Room
   = Room
@@ -104,13 +112,15 @@ removeConnection connId room =
 events :: Room -> [(EventId, Event)]
 events = toList . roomEvents
 
-addEvent :: Event -> Room -> Room
+addEvent :: Event -> Room -> (Room, EventId)
 addEvent event room =
   let next = roomNextEventId room
-   in room
-        { roomEvents = roomEvents room :|> (next, event),
-          roomNextEventId = next + 1
-        }
+   in ( room
+          { roomEvents = roomEvents room :|> (next, event),
+            roomNextEventId = next + 1
+          },
+        next
+      )
 
 -- | Broadcast a message to all listeners, dropping those
 -- that aren't open anymore.
@@ -133,7 +143,7 @@ sendHistory :: WebSockets.Connection -> Room -> RIO App ()
 sendHistory conn room =
   liftIO $
     mapM_
-      (WebSockets.sendTextData conn . eventOperation . snd)
+      (WebSockets.sendTextData conn . encodeEvent)
       (events room)
 
 toplevel :: WebHandler (RIO App)
@@ -170,13 +180,16 @@ game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallbac
             withPingThread conn 30 $ loop conn
         )
     loop conn = do
-      msg <- liftIO $ receiveDataMessageOrClosed conn
-      case msg of
-        Just (WebSockets.Text b _) -> do
-          info $ "received text message: " <> displayBytesUtf8 (BL.toStrict b)
+      mmsg <- liftIO $ receiveDataMessageOrClosed conn
+      case mmsg of
+        Just msg@(WebSockets.Text _ _) -> do
+          let msgText = WebSockets.fromDataMessage msg :: Text
+          info $ "received text message: " <> display msgText
           modifyMVar_ roomM $ \room -> do
-            let room' = addEvent (Event {eventOperation = b}) room
-            broadcastMessage b room'
+            let event = Event {eventOperation = msgText}
+                (room', eventId) = addEvent event room
+                payload = encodeEvent (eventId, event)
+            broadcastMessage payload room'
           loop conn
         Just (WebSockets.Binary _) -> do
           info "ignoring binary message"
