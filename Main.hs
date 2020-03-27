@@ -127,6 +127,13 @@ broadcastMessage msg room = do
                     _ -> throwIO e
                 )
 
+sendHistory :: WebSockets.Connection -> Room -> RIO App ()
+sendHistory conn room =
+  liftIO $
+    mapM_
+      (WebSockets.sendTextData conn . eventOperation . snd)
+      (events room)
+
 toplevel :: WebHandler (RIO App)
 toplevel req respond = do
   case Wai.pathInfo req of
@@ -148,7 +155,10 @@ game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallbac
     handleConn pendingConn = do
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
       bracket
-        (modifyMVar roomM (pure . addConnection conn))
+        ( modifyMVar roomM $ \room -> do
+            sendHistory conn room
+            return $ addConnection conn room
+        )
         ( \connId -> do
             modifyMVar_ roomM (pure . removeConnection connId)
             info $ "dropped connection " <> displayShow connId
