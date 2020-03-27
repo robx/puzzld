@@ -184,11 +184,11 @@ game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallbac
       case mmsg of
         Just msg@(WebSockets.Text _ _) -> do
           let msgText = WebSockets.fromDataMessage msg :: Text
-          info $ "received text message: " <> display msgText
           modifyMVar_ roomM $ \room -> do
             let event = Event {eventOperation = msgText}
                 (room', eventId) = addEvent event room
                 payload = encodeEvent (eventId, event)
+            info $ "received operation " <> display eventId <> ": " <> display msgText
             broadcastMessage payload room'
           loop conn
         Just (WebSockets.Binary _) -> do
