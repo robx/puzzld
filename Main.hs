@@ -38,6 +38,11 @@ info msg = do
   logContext <- view $ to appLogContext
   logInfo $ mconcat (map (\c -> c <> ": ") logContext) <> msg
 
+debug :: Utf8Builder -> RIO App ()
+debug msg = do
+  logContext <- view $ to appLogContext
+  logDebug $ mconcat (map (\c -> c <> ": ") logContext) <> msg
+
 withContext :: [Utf8Builder] -> RIO App a -> RIO App a
 withContext ctx = local (\app -> app {appLogContext = ctx})
 
@@ -134,7 +139,7 @@ broadcastMessage msg room = do
       (liftIO (WebSockets.sendTextData conn msg) >> return (Just c))
         `catch` ( \e -> case e of
                     WebSockets.ConnectionClosed -> do
-                      info $ "dropping closed connection"
+                      debug $ "dropping closed connection"
                       return Nothing
                     _ -> throwIO e
                 )
@@ -173,10 +178,10 @@ game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallbac
         )
         ( \connId -> do
             modifyMVar_ roomM (pure . removeConnection connId)
-            info $ "dropped connection " <> displayShow connId
+            debug $ "dropped connection " <> displayShow connId
         )
         ( \connId -> do
-            info $ "accepted connection " <> displayShow connId
+            debug $ "accepted connection " <> displayShow connId
             withPingThread conn 30 $ loop conn
         )
     loop conn = do
@@ -188,14 +193,14 @@ game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallbac
             let event = Event {eventOperation = msgText}
                 (room', eventId) = addEvent event room
                 payload = encodeEvent (eventId, event)
-            info $ "received operation " <> display eventId <> ": " <> display msgText
+            debug $ "received operation " <> display eventId <> ": " <> display msgText
             broadcastMessage payload room'
           loop conn
         Just (WebSockets.Binary _) -> do
-          info "ignoring binary message"
+          debug "ignoring binary message"
           loop conn
         Nothing ->
-          info "connection closed"
+          debug "connection closed"
     fallback _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
