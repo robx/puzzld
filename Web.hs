@@ -54,8 +54,7 @@ receiveDataMessageOrClosed conn =
   )
     `catch` ( \e -> case e of
                 WebSockets.CloseRequest _ _ -> return Nothing
-                -- below only happens if we keep reading after above
-                -- WebSockets.ConnectionClosed -> return Nothing
+                WebSockets.ConnectionClosed -> return Nothing
                 _ -> throwIO e
             )
 
