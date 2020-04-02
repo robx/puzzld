@@ -14,11 +14,11 @@ import Network.WebSockets (WebSocketsData)
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
-import Web (WebHandler, receiveDataMessageOrClosed, run, sourceAddress, websocketsOr, withPingThread)
+import Web (WebHandler, run, sourceAddress, websocketsOr, withPingThread)
 
 type Key = Text
 
-type Rooms = Map Key (MVar Room)
+type Rooms = Map Key (TVar Room)
 
 emptyRooms :: Rooms
 emptyRooms = Map.empty
@@ -53,16 +53,16 @@ runApp inner = runSimpleApp $ do
   let app = App {appLogFunc = logFunc, appLogContext = [], appRooms = rooms}
   runRIO app inner
 
-getRoom :: Key -> RIO App (MVar Room)
+getRoom :: Key -> RIO App (TVar Room)
 getRoom key = do
-  roomsM <- view $ to appRooms
-  modifyMVar roomsM $ \rooms ->
-    case Map.lookup key rooms of
-      Just room -> return (rooms, room)
+  rooms <- view $ to appRooms
+  modifyMVar rooms $ \rs ->
+    case Map.lookup key rs of
+      Just r -> return (rs, r)
       Nothing -> do
         info $ "creating new room: " <> display key
-        room <- newMVar emptyRoom
-        return $ (Map.insert key room rooms, room)
+        r <- atomically $ newTVar emptyRoom
+        return $ (Map.insert key r rs, r)
 
 type ConnectionId = Int
 
@@ -117,6 +117,9 @@ removeConnection connId room =
 events :: Room -> [(EventId, Event)]
 events = toList . roomEvents
 
+eventsFrom :: Room -> EventId -> [(EventId, Event)]
+eventsFrom room start = filter ((>= start) . fst) $ events room
+
 addEvent :: Event -> Room -> (Room, EventId)
 addEvent event room =
   let next = roomNextEventId room
@@ -144,12 +147,15 @@ broadcastMessage msg room = do
                     _ -> throwIO e
                 )
 
-sendHistory :: WebSockets.Connection -> Room -> RIO App ()
-sendHistory conn room =
-  liftIO $
+-- | Send the current event history down a connection, starting
+-- at the given event ID. Returns the ID of the first unsent (future) event.
+sendHistoryFrom :: WebSockets.Connection -> Room -> EventId -> RIO App EventId
+sendHistoryFrom conn room start =
+  liftIO $ do
     mapM_
       (WebSockets.sendTextData conn . encodeEvent)
-      (events room)
+      (eventsFrom room start)
+    return $ roomNextEventId room
 
 toplevel :: WebHandler (RIO App)
 toplevel req respond = do
@@ -166,41 +172,48 @@ toplevel req respond = do
       withContext ctx $ game room req respond
     _ -> respond $ Wai.responseLBS status404 [] "not found"
 
-game :: MVar Room -> WebHandler (RIO App)
-game roomM = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
+receive :: WebSockets.Connection -> TChan Text -> RIO App ()
+receive conn chan = do
+  msg <- liftIO $ WebSockets.receiveDataMessage conn
+  case msg of
+    m@(WebSockets.Text _ _) -> do
+      atomically $ writeTChan chan $ WebSockets.fromDataMessage m
+      receive conn chan
+    WebSockets.Binary _ -> do
+      debug "ignoring binary message"
+      receive conn chan
+
+game :: TVar Room -> WebHandler (RIO App)
+game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
   where
     handleConn pendingConn = do
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
-      bracket
-        ( modifyMVar roomM $ \room -> do
-            sendHistory conn room
-            return $ addConnection conn room
-        )
-        ( \connId -> do
-            modifyMVar_ roomM (pure . removeConnection connId)
-            debug $ "dropped connection " <> displayShow connId
-        )
-        ( \connId -> do
-            debug $ "accepted connection " <> displayShow connId
-            withPingThread conn 30 $ loop conn
-        )
-    loop conn = do
-      mmsg <- liftIO $ receiveDataMessageOrClosed conn
-      case mmsg of
-        Just msg@(WebSockets.Text _ _) -> do
-          let msgText = WebSockets.fromDataMessage msg :: Text
-          modifyMVar_ roomM $ \room -> do
-            let event = Event {eventOperation = msgText}
-                (room', eventId) = addEvent event room
-                payload = encodeEvent (eventId, event)
-            debug $ "received operation " <> display eventId <> ": " <> display msgText
-            broadcastMessage payload room'
-          loop conn
-        Just (WebSockets.Binary _) -> do
-          debug "ignoring binary message"
-          loop conn
-        Nothing ->
-          debug "connection closed"
+      chan <- atomically newTChan
+      debug $ "accepted connection"
+      withPingThread conn 30 $ void $
+        race (handleMessages conn chan 0) (receive conn chan)
+      debug $ "dropped connection" -- <> displayShow connId
+    handleMessages conn chan last = do
+      action <- atomically $ do
+        r <- readTVar room
+        sendUpdate conn r last
+          <|> do
+            msg <- readTChan chan
+            return $ handleMessage msg >> return last
+      last' <- action
+      handleMessages conn chan last'
+    handleMessage msg = do
+      let event = Event {eventOperation = msg}
+      eventId <- atomically $ do
+        r <- readTVar room
+        let (r', eventId) = addEvent event r
+        writeTVar room $! r'
+        return eventId
+      debug $ "received operation " <> display eventId <> ": " <> display msg
+    sendUpdate conn r last = do
+      if last == roomNextEventId r
+        then retrySTM
+        else return $ sendHistoryFrom conn r last
     fallback _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()

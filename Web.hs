@@ -8,7 +8,6 @@ module Web
     websocketsOr,
     withPingThread,
     sourceAddress,
-    receiveDataMessageOrClosed,
   )
 where
 
@@ -45,18 +44,6 @@ websocketsOr connectionOptions app backup =
 withPingThread :: MonadUnliftIO m => WebSockets.Connection -> Int -> m a -> m a
 withPingThread conn interval action = withRunInIO $ \runInIO ->
   WebSockets.withPingThread conn interval (return ()) (runInIO action)
-
-receiveDataMessageOrClosed :: WebSockets.Connection -> IO (Maybe WebSockets.DataMessage)
-receiveDataMessageOrClosed conn =
-  ( do
-      msg <- WebSockets.receiveDataMessage conn
-      return $ Just msg
-  )
-    `catch` ( \e -> case e of
-                WebSockets.CloseRequest _ _ -> return Nothing
-                WebSockets.ConnectionClosed -> return Nothing
-                _ -> throwIO e
-            )
 
 sourceAddress :: Wai.Request -> Utf8Builder
 sourceAddress req = fromMaybe socketAddr headerAddr
