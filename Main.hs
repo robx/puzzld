@@ -190,8 +190,8 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
       conn <- liftIO $ WebSockets.acceptRequest pendingConn
       chan <- atomically newTChan
       debug $ "accepted connection"
-      withPingThread conn 30 $ void $
-        race (handleMessages conn chan 0) (receive conn chan)
+      withPingThread conn 30 $
+        race_ (handleMessages conn chan 0) (receive conn chan)
       debug $ "dropped connection" -- <> displayShow connId
     handleMessages conn chan last = do
       action <- atomically $ do
