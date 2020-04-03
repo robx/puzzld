@@ -8,7 +8,6 @@ import Data.Aeson ((.=))
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.WebSockets as WebSockets
-import Network.WebSockets (WebSocketsData)
 import qualified Options.Applicative as Options
 import RIO
 import qualified RIO.ByteString.Lazy as BL
@@ -83,8 +82,6 @@ getRoom key = do
         r <- atomically $ newTVar emptyRoom
         return $ (Map.insert key r rs, r)
 
-type ConnectionId = Int
-
 type EventId = Int
 
 data Event
@@ -100,38 +97,15 @@ encodeEvent (eventId, event) =
 
 data Room
   = Room
-      { roomConnections :: [(ConnectionId, WebSockets.Connection)],
-        roomNextConnectionId :: !ConnectionId,
-        roomEvents :: [(EventId, Event)], -- newest first
+      { roomEvents :: [(EventId, Event)], -- newest first
         roomNextEventId :: !EventId
       }
 
 emptyRoom :: Room
 emptyRoom = Room
-  { roomConnections = [],
-    roomNextConnectionId = 0,
-    roomEvents = [],
+  { roomEvents = [],
     roomNextEventId = 0
   }
-
-connections :: Room -> [(ConnectionId, WebSockets.Connection)]
-connections = roomConnections
-
-addConnection :: WebSockets.Connection -> Room -> (Room, ConnectionId)
-addConnection conn room =
-  let conns = roomConnections room
-      next = roomNextConnectionId room
-   in ( room
-          { roomConnections = (next, conn) : conns,
-            roomNextConnectionId = next + 1
-          },
-        next
-      )
-
-removeConnection :: ConnectionId -> Room -> Room
-removeConnection connId room =
-  let conns = roomConnections room
-   in room {roomConnections = filter (\(i, _) -> i /= connId) conns}
 
 -- | Events with ID greater or equal to the given, in ascending ID order.
 eventsFrom :: Room -> EventId -> [(EventId, Event)]
@@ -146,23 +120,6 @@ addEvent event room =
           },
         next
       )
-
--- | Broadcast a message to all listeners, dropping those
--- that aren't open anymore.
-broadcastMessage :: WebSocketsData a => a -> Room -> RIO App Room
-broadcastMessage msg room = do
-  let conns = roomConnections room
-  liveConns <- catMaybes <$> mapM trySend conns
-  return $ room {roomConnections = liveConns}
-  where
-    trySend c@(_, conn) =
-      (liftIO (WebSockets.sendTextData conn msg) >> return (Just c))
-        `catch` ( \e -> case e of
-                    WebSockets.ConnectionClosed -> do
-                      debug $ "dropping closed connection"
-                      return Nothing
-                    _ -> throwIO e
-                )
 
 -- | Send the current event history down a connection, starting
 -- at the given event ID. Returns the ID of the first unsent (future) event.
