@@ -185,8 +185,9 @@ work conn chan room start = loop start
     loop last = do
       action <- atomically $ do
         r <- readTVar room
-        sendUpdate r last
-          <|> do
+        if last /= roomNextEventId r
+          then return $ sendHistoryFrom conn r last
+          else do
             msg <- readTChan chan
             return $ handleMessage msg >> return last
       last' <- action
@@ -199,10 +200,6 @@ work conn chan room start = loop start
         writeTVar room $! r'
         return eventId
       debug $ "received operation " <> display eventId <> ": " <> display msg
-    sendUpdate r last = do
-      if last == roomNextEventId r
-        then retrySTM
-        else return $ sendHistoryFrom conn r last
 
 game :: TVar Room -> WebHandler (RIO App)
 game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
