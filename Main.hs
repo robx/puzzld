@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Main where
+module Main
+  ( main,
+  )
+where
 
 import qualified Data.Aeson as Aeson
 import Data.Aeson ((.=))
