@@ -5,8 +5,6 @@ module Main where
 
 import qualified Data.Aeson as Aeson
 import Data.Aeson ((.=))
-import qualified Data.Sequence as Seq
-import Data.Sequence (Seq (..))
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.WebSockets as WebSockets
@@ -83,7 +81,7 @@ data Room
   = Room
       { roomConnections :: [(ConnectionId, WebSockets.Connection)],
         roomNextConnectionId :: !ConnectionId,
-        roomEvents :: Seq (EventId, Event),
+        roomEvents :: [(EventId, Event)], -- newest first
         roomNextEventId :: !EventId
       }
 
@@ -91,7 +89,7 @@ emptyRoom :: Room
 emptyRoom = Room
   { roomConnections = [],
     roomNextConnectionId = 0,
-    roomEvents = Seq.Empty,
+    roomEvents = [],
     roomNextEventId = 0
   }
 
@@ -114,17 +112,15 @@ removeConnection connId room =
   let conns = roomConnections room
    in room {roomConnections = filter (\(i, _) -> i /= connId) conns}
 
-events :: Room -> [(EventId, Event)]
-events = toList . roomEvents
-
+-- | Events with ID greater or equal to the given, in ascending ID order.
 eventsFrom :: Room -> EventId -> [(EventId, Event)]
-eventsFrom room start = filter ((>= start) . fst) $ events room
+eventsFrom room start = reverse $ takeWhile ((>= start) . fst) (roomEvents room)
 
 addEvent :: Event -> Room -> (Room, EventId)
 addEvent event room =
   let next = roomNextEventId room
    in ( room
-          { roomEvents = roomEvents room :|> (next, event),
+          { roomEvents = (next, event) : roomEvents room,
             roomNextEventId = next + 1
           },
         next
