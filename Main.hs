@@ -179,30 +179,18 @@ receive conn chan = do
       debug "ignoring binary message"
       receive conn chan
 
-game :: TVar Room -> WebHandler (RIO App)
-game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
+work :: WebSockets.Connection -> TChan Text -> TVar Room -> EventId -> RIO App ()
+work conn chan room start = loop start
   where
-    handleConn pendingConn = do
-      conn <- liftIO $ WebSockets.acceptRequest pendingConn
-      chan <- atomically newTChan
-      debug $ "accepted connection"
-      withPingThread conn 30 $
-        race_ (handleMessages conn chan 0) (receive conn chan)
-          `catch` ( \e -> case e of
-                      WebSockets.CloseRequest _ _ -> return ()
-                      WebSockets.ConnectionClosed -> return ()
-                      _ -> throwIO e
-                  )
-      debug $ "dropped connection"
-    handleMessages conn chan last = do
+    loop last = do
       action <- atomically $ do
         r <- readTVar room
-        sendUpdate conn r last
+        sendUpdate r last
           <|> do
             msg <- readTChan chan
             return $ handleMessage msg >> return last
       last' <- action
-      handleMessages conn chan last'
+      loop last'
     handleMessage msg = do
       let event = Event {eventOperation = msg}
       eventId <- atomically $ do
@@ -211,10 +199,26 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
         writeTVar room $! r'
         return eventId
       debug $ "received operation " <> display eventId <> ": " <> display msg
-    sendUpdate conn r last = do
+    sendUpdate r last = do
       if last == roomNextEventId r
         then retrySTM
         else return $ sendHistoryFrom conn r last
+
+game :: TVar Room -> WebHandler (RIO App)
+game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
+  where
+    handleConn pendingConn = do
+      conn <- liftIO $ WebSockets.acceptRequest pendingConn
+      chan <- atomically newTChan
+      debug $ "accepted connection"
+      withPingThread conn 30 $
+        race_ (work conn chan room 0) (receive conn chan)
+          `catch` ( \e -> case e of
+                      WebSockets.CloseRequest _ _ -> return ()
+                      WebSockets.ConnectionClosed -> return ()
+                      _ -> throwIO e
+                  )
+      debug $ "dropped connection"
     fallback _ respond = respond $ Wai.responseLBS status400 [] "not a websocket request"
 
 main :: IO ()
