@@ -6,6 +6,7 @@ module Main
   )
 where
 
+import App (App (..), debug, info, withContext)
 import qualified Data.Aeson as Aeson
 import Data.Aeson ((.=))
 import Network.HTTP.Types
@@ -15,6 +16,8 @@ import qualified Options.Applicative as Options
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
+import Room (roomsPostHandler)
+import State (Event (..), EventId, Key, Room (..), emptyRoom, emptyRooms)
 import Web (WebHandler, run, sourceAddress, websocketsOr, withPingThread)
 
 data Opts
@@ -37,36 +40,6 @@ getOpts = Options.execParser parser
         )
         (Options.fullDesc <> Options.progDesc "Websockets puzzle server." <> Options.header "puzzld")
 
-type Key = Text
-
-type Rooms = Map Key (TVar Room)
-
-emptyRooms :: Rooms
-emptyRooms = Map.empty
-
-data App
-  = App
-      { appLogFunc :: !LogFunc,
-        appLogContext :: [Utf8Builder],
-        appRooms :: !(MVar Rooms)
-      }
-
-instance HasLogFunc App where
-  logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
-
-info :: Utf8Builder -> RIO App ()
-info msg = do
-  logContext <- view $ to appLogContext
-  logInfo $ mconcat (map (\c -> c <> ": ") logContext) <> msg
-
-debug :: Utf8Builder -> RIO App ()
-debug msg = do
-  logContext <- view $ to appLogContext
-  logDebug $ mconcat (map (\c -> c <> ": ") logContext) <> msg
-
-withContext :: [Utf8Builder] -> RIO App a -> RIO App a
-withContext ctx = local (\app -> app {appLogContext = ctx})
-
 runApp :: RIO App () -> IO ()
 runApp inner = runSimpleApp $ do
   logFunc <- view logFuncL
@@ -85,30 +58,11 @@ getRoom key = do
         r <- atomically $ newTVar emptyRoom
         return $ (Map.insert key r rs, r)
 
-type EventId = Int
-
-data Event
-  = Event
-      { eventOperation :: Text
-      }
-
 encodeEvent :: (EventId, Event) -> BL.ByteString
 encodeEvent (eventId, event) =
   Aeson.encode $
     Aeson.object
       ["id" .= Aeson.toJSON eventId, "operation" .= Aeson.toJSON (eventOperation event)]
-
-data Room
-  = Room
-      { roomEvents :: [(EventId, Event)], -- newest first
-        roomNextEventId :: !EventId
-      }
-
-emptyRoom :: Room
-emptyRoom = Room
-  { roomEvents = [],
-    roomNextEventId = 0
-  }
 
 -- | Events with ID greater or equal to the given, in ascending ID order.
 eventsFrom :: Room -> EventId -> [(EventId, Event)]
@@ -147,6 +101,17 @@ toplevel req respond = do
       let ctx = ["room " <> display key, sourceAddress req]
       room <- getRoom key
       withContext ctx $ game room req respond
+    {-
+    /game/key websocket
+    
+    
+    POST /rooms
+    /rooms/key
+    
+    /rooms/roomkey/connkey
+    /rooms/roomkey/connkey
+    -}
+    ["rooms"] -> roomsPostHandler req respond
     _ -> respond $ Wai.responseLBS status404 [] "not found"
 
 receive :: WebSockets.Connection -> TChan Text -> RIO App ()
