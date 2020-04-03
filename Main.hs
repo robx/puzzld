@@ -188,7 +188,12 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
       debug $ "accepted connection"
       withPingThread conn 30 $
         race_ (handleMessages conn chan 0) (receive conn chan)
-      debug $ "dropped connection" -- <> displayShow connId
+          `catch` ( \e -> case e of
+                      WebSockets.CloseRequest _ _ -> return ()
+                      WebSockets.ConnectionClosed -> return ()
+                      _ -> throwIO e
+                  )
+      debug $ "dropped connection"
     handleMessages conn chan last = do
       action <- atomically $ do
         r <- readTVar room
