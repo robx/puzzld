@@ -201,6 +201,7 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
 
 main :: IO ()
 main = runApp $ do
-  Opts port <- liftIO getOpts
+  opts <- liftIO getOpts
+  let port = optPort opts
   info $ "listening on port " <> display port
   run port toplevel
