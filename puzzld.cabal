@@ -21,6 +21,7 @@ executable puzzld
                        aeson,
                        containers,
                        http-types,
+                       optparse-applicative,
                        rio,
                        wai,
                        wai-websockets,

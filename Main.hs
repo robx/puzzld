@@ -9,10 +9,31 @@ import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.WebSockets as WebSockets
 import Network.WebSockets (WebSocketsData)
+import qualified Options.Applicative as Options
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
 import Web (WebHandler, run, sourceAddress, websocketsOr, withPingThread)
+
+data Opts
+  = Opts {optPort :: Int}
+
+getOpts :: IO Opts
+getOpts = Options.execParser parser
+  where
+    parser =
+      Options.info
+        ( Options.helper
+            <*> ( Opts
+                    <$> Options.option
+                      Options.auto
+                      ( Options.long "port" <> Options.short 'p' <> Options.value 8787
+                          <> Options.metavar "PORT"
+                          <> Options.help "listen port"
+                      )
+                )
+        )
+        (Options.fullDesc <> Options.progDesc "Websockets puzzle server." <> Options.header "puzzld")
 
 type Key = Text
 
@@ -223,5 +244,6 @@ game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
 
 main :: IO ()
 main = runApp $ do
-  info $ "listening on port 8787"
-  run 8787 toplevel
+  Opts port <- liftIO getOpts
+  info $ "listening on port " <> display port
+  run port toplevel
