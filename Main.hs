@@ -189,17 +189,14 @@ work conn chan room start = loop start
           then return $ sendHistoryFrom conn r last
           else do
             msg <- readTChan chan
-            return $ handleMessage msg >> return last
+            let event = Event {eventOperation = msg}
+                (r', eventId) = addEvent event r
+            writeTVar room $! r'
+            return $ do
+              debug $ "received operation " <> display eventId <> ": " <> display msg
+              return last
       last' <- action
       loop last'
-    handleMessage msg = do
-      let event = Event {eventOperation = msg}
-      eventId <- atomically $ do
-        r <- readTVar room
-        let (r', eventId) = addEvent event r
-        writeTVar room $! r'
-        return eventId
-      debug $ "received operation " <> display eventId <> ": " <> display msg
 
 game :: TVar Room -> WebHandler (RIO App)
 game room = websocketsOr WebSockets.defaultConnectionOptions handleConn fallback
