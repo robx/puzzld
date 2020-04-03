@@ -179,6 +179,15 @@ receive conn chan = do
       debug "ignoring binary message"
       receive conn chan
 
+addEventT :: Event -> TVar Room -> RIO App ()
+addEventT event room = do
+  eventId <- atomically $ do
+    r <- readTVar room
+    let (r', eventId) = addEvent event r
+    writeTVar room $! r'
+    return eventId
+  debug $ "received operation " <> display eventId <> ": " <> display (eventOperation event)
+
 work :: WebSockets.Connection -> TChan Text -> TVar Room -> EventId -> RIO App ()
 work conn chan room start = loop start
   where
@@ -189,12 +198,9 @@ work conn chan room start = loop start
           then return $ sendHistoryFrom conn r last
           else do
             msg <- readTChan chan
-            let event = Event {eventOperation = msg}
-                (r', eventId) = addEvent event r
-            writeTVar room $! r'
             return $ do
-              debug $ "received operation " <> display eventId <> ": " <> display msg
-              return last
+              let event = Event {eventOperation = msg}
+              addEventT event room >> return last
       last' <- action
       loop last'
 
