@@ -7,13 +7,15 @@ module Handlers
   )
 where
 
-import App (App)
+import App (App (..), info)
 import qualified Data.Aeson as Aeson
 import Data.Aeson (FromJSON, ToJSON)
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import RIO
+import qualified RIO.Map as Map
 import qualified RIO.Text as T
+import State (GameSlot (..), Key, Room, newRoom)
 import System.Random (randomRIO)
 import Web (WebHandler)
 
@@ -30,8 +32,6 @@ data PzvLinks
       }
   deriving (Generic, Show, ToJSON, FromJSON)
 
-type Key = Text
-
 makeKey :: RIO App Key
 makeKey = do
   T.pack <$> mapM (const (randomElement chars)) [1 .. len]
@@ -47,20 +47,43 @@ data RoomResult
       {links :: [PzvLinks]}
   deriving (Generic, Show, ToJSON, FromJSON)
 
+registerRoom :: Room -> RIO App Key
+registerRoom room = do
+  rooms <- view $ to appRooms
+  modifyMVar rooms go
+  where
+    go rs = do
+      key <- makeKey
+      case Map.lookup key rs of
+        Just _ -> go rs
+        Nothing -> do
+          info $ "creating new room: " <> display key
+          r <- atomically $ newTVar room
+          return $ (Map.insert key r rs, key)
+
 acceptRoomPost :: RoomPost -> RIO App RoomResult
 acceptRoomPost rp = do
-  roomKey <- makeKey
-  ls <- mapM (toLinks roomKey) (pzvs rp)
+  keys <- mapM makeKeys (pzvs rp)
+  let room = newRoom $ Map.fromList $ concatMap toSlots keys
+  roomKey <- registerRoom room
   return $
     RoomResult
-      { links = ls
+      { links = map (toLinks roomKey) keys
       }
   where
-    toLinks :: Key -> Text -> RIO App PzvLinks
-    toLinks roomKey p = do
+    makeKeys :: Text -> RIO App (Text, Key, Key)
+    makeKeys p = do
       playerKey <- makeKey
       spectatorKey <- makeKey
-      return $ PzvLinks
+      return (p, playerKey, spectatorKey)
+    toSlots :: (Text, Key, Key) -> [(Key, GameSlot)]
+    toSlots (p, playerKey, spectatorKey) =
+      [ (playerKey, GameSlot {slotPzv = p, slotRw = True}),
+        (spectatorKey, GameSlot {slotPzv = p, slotRw = False})
+      ]
+    toLinks :: Key -> (Text, Key, Key) -> PzvLinks
+    toLinks roomKey (p, playerKey, spectatorKey) =
+      PzvLinks
         { pzv = p,
           player = "room" <> "/" <> roomKey <> "/" <> playerKey,
           spectator = "room" <> "/" <> roomKey <> "/" <> spectatorKey

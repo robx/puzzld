@@ -4,8 +4,10 @@ module State
     Key,
     Room (..),
     emptyRoom,
+    newRoom,
     Rooms,
     emptyRooms,
+    GameSlot (..),
   )
 where
 
@@ -19,17 +21,28 @@ data Event
       { eventOperation :: Text
       }
 
+data GameSlot
+  = GameSlot
+      { slotPzv :: Text,
+        slotRw :: Bool
+      }
+
 data Room
   = Room
       { roomEvents :: [(EventId, Event)], -- newest first
-        roomNextEventId :: !EventId
+        roomNextEventId :: !EventId,
+        roomSlots :: Map.Map Key GameSlot
       }
 
 emptyRoom :: Room
 emptyRoom = Room
   { roomEvents = [],
-    roomNextEventId = 0
+    roomNextEventId = 0,
+    roomSlots = Map.empty
   }
+
+newRoom :: Map.Map Key GameSlot -> Room
+newRoom slots = emptyRoom {roomSlots = slots}
 
 type Key = Text
 
