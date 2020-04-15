@@ -13,6 +13,8 @@ import Data.Aeson (FromJSON, ToJSON)
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import RIO
+import qualified RIO.Text as T
+import System.Random (randomRIO)
 import Web (WebHandler)
 
 data RoomPost
@@ -27,6 +29,18 @@ data PzvLinks
         spectator :: Text
       }
   deriving (Generic, Show, ToJSON, FromJSON)
+
+type Key = Text
+
+makeKey :: RIO App Key
+makeKey = do
+  T.pack <$> mapM (const (randomElement chars)) [1 .. len]
+  where
+    len = 6 :: Int
+    randomElement l = do
+      i <- liftIO $ randomRIO (0, length l - 1)
+      return $ l !! i
+    chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
 
 data RoomResult
   = RoomResult

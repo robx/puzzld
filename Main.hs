@@ -9,6 +9,7 @@ where
 import App (App (..), debug, info, withContext)
 import qualified Data.Aeson as Aeson
 import Data.Aeson ((.=))
+import Handlers (roomsPostHandler)
 import Network.HTTP.Types
 import qualified Network.Wai as Wai
 import qualified Network.WebSockets as WebSockets
@@ -16,7 +17,6 @@ import qualified Options.Applicative as Options
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
-import Handlers (roomsPostHandler)
 import State (Event (..), EventId, Key, Room (..), emptyRoom, emptyRooms)
 import Web (WebHandler, run, sourceAddress, websocketsOr, withPingThread)
 
@@ -40,7 +40,7 @@ getOpts = Options.execParser parser
         )
         (Options.fullDesc <> Options.progDesc "Websockets puzzle server." <> Options.header "puzzld")
 
-runApp :: RIO App () -> IO ()
+runApp :: RIO App a -> IO a
 runApp inner = runSimpleApp $ do
   logFunc <- view logFuncL
   rooms <- newMVar emptyRooms
