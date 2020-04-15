@@ -16,7 +16,7 @@ import qualified Options.Applicative as Options
 import RIO
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
-import Room (roomsPostHandler)
+import Handlers (roomsPostHandler)
 import State (Event (..), EventId, Key, Room (..), emptyRoom, emptyRooms)
 import Web (WebHandler, run, sourceAddress, websocketsOr, withPingThread)
 

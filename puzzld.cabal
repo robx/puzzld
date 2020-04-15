@@ -15,7 +15,7 @@ build-type:          Simple
 
 executable puzzld
   main-is:             Main.hs
-  other-modules:       App, Room, State, Web
+  other-modules:       App, Handlers, State, Web
   -- other-extensions:
   build-depends:       base >=4.12 && <4.14,
                        aeson,
