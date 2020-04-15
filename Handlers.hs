@@ -47,12 +47,24 @@ data RoomResult
       {links :: [PzvLinks]}
   deriving (Generic, Show, ToJSON, FromJSON)
 
-acceptRoomPost :: RoomPost -> RoomResult
-acceptRoomPost rp = RoomResult
-  { links = map toLinks (pzvs rp)
-  }
+acceptRoomPost :: RoomPost -> RIO App RoomResult
+acceptRoomPost rp = do
+  roomKey <- makeKey
+  ls <- mapM (toLinks roomKey) (pzvs rp)
+  return $
+    RoomResult
+      { links = ls
+      }
   where
-    toLinks p = PzvLinks {pzv = p, player = "", spectator = ""}
+    toLinks :: Key -> Text -> RIO App PzvLinks
+    toLinks roomKey p = do
+      playerKey <- makeKey
+      spectatorKey <- makeKey
+      return $ PzvLinks
+        { pzv = p,
+          player = "room" <> "/" <> roomKey <> "/" <> playerKey,
+          spectator = "room" <> "/" <> roomKey <> "/" <> spectatorKey
+        }
 
 roomsPostHandler :: WebHandler (RIO App)
 roomsPostHandler = \req respond ->
@@ -61,7 +73,7 @@ roomsPostHandler = \req respond ->
       body <- liftIO $ Wai.strictRequestBody req
       case Aeson.decode body of
         Just roomPost -> do
-          let res = acceptRoomPost roomPost
+          res <- acceptRoomPost roomPost
           respond $ Wai.responseLBS status200 [] $ Aeson.encode res
         Nothing -> respond $ Wai.responseLBS status400 [] "bad user"
     _ -> respond $ Wai.responseLBS status405 [] "invalid method"
