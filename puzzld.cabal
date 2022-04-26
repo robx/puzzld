@@ -5,7 +5,7 @@ synopsis:            A websocket puzzle solve state sharing server
 -- description:
 -- bug-reports:
 -- license:
--- license-file:        LICENSE
+license-file:        LICENSE
 author:              Robert Vollmert
 maintainer:          rob@vllmrt.net
 -- copyright:

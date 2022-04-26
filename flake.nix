@@ -16,7 +16,7 @@
         project = devTools:
           let addBuildTools = (t.flip hl.addBuildTools) devTools;
           in haskellPackages.developPackage {
-            root = lib.sourceFilesBySuffices ./. [ ".cabal" ".hs" ];
+            root = lib.sourceFilesBySuffices ./. [ ".cabal" ".hs" "LICENSE" ];
             name = name;
             returnShellEnv = !(devTools == [ ]);
 
