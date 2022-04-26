@@ -17,7 +17,7 @@ executable puzzld
   main-is:             Main.hs
   other-modules:       Web
   -- other-extensions:
-  build-depends:       base >=4.12 && <4.14,
+  build-depends:       base >=4.12 && <5,
                        aeson,
                        containers,
                        http-types,
