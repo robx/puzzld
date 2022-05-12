@@ -6,17 +6,17 @@
 
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
-      with nixpkgs.legacyPackages.${system};
       let
-        t = lib.trivial;
-        hl = haskell.lib;
+        pkgs = nixpkgs.legacyPackages.${system};
+        t = pkgs.lib.trivial;
+        hl = pkgs.haskell.lib;
 
         name = "puzzld";
 
         project = devTools:
           let addBuildTools = (t.flip hl.addBuildTools) devTools;
-          in haskellPackages.developPackage {
-            root = lib.sourceFilesBySuffices ./. [ ".cabal" ".hs" "LICENSE" ];
+          in pkgs.haskellPackages.developPackage {
+            root = pkgs.lib.sourceFilesBySuffices ./. [ ".cabal" ".hs" "LICENSE" ];
             name = name;
             returnShellEnv = !(devTools == [ ]);
 
@@ -31,14 +31,13 @@
           };
 
       in {
-        packages.pkg = project [ ];
+        packages.puzzld = project [ ];
 
-        defaultPackage = self.packages.${system}.pkg;
+        defaultPackage = self.packages.${system}.puzzld;
 
-        devShell = project (with haskellPackages; [
-          cabal-fmt
-          cabal-install
-          hlint
+        devShell = project (with pkgs.haskellPackages; [
+          pkgs.haskellPackages.cabal-fmt
+          pkgs.haskellPackages.cabal-install
         ]);
       });
 }
